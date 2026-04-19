@@ -94,7 +94,7 @@ describe("parseStargateExtras", () => {
       },
     });
     expect(out?.llama_swap_profile).toBe("qwopus-9b");
-    expect((out as Record<string, unknown>).future_field).toBe("whatever");
+    expect((out as Record<string, unknown>)["future_field"]).toBe("whatever");
   });
 });
 
@@ -120,7 +120,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => FetchResponse) 
       status: res.status,
       headers: { "content-type": "application/json" },
     });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 afterEach(() => {
@@ -167,7 +167,7 @@ describe("delegateLoad", () => {
   it("throws llama-swap-unreachable on fetch rejection", async () => {
     globalThis.fetch = mock(async () => {
       throw new TypeError("fetch failed");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     try {
       await delegateLoad(buildRecipe());
       throw new Error("expected throw");
