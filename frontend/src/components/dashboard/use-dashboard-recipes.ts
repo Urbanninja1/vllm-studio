@@ -128,9 +128,9 @@ export function useDashboardRecipes(currentProcess: ProcessInfo | null) {
       // Running-first ordering — synthetic P6000 cards + matched-running
       // recipes bubble to the top so the first 12 the ModelsSection renders
       // always include every currently-loaded model.
-      const running = [...synthesized, ...merged.filter((r) => r.status === "running")];
+      const runningFirst = [...synthesized, ...merged.filter((r) => r.status === "running")];
       const rest = merged.filter((r) => r.status !== "running");
-      setRecipes([...running, ...rest]);
+      setRecipes([...runningFirst, ...rest]);
 
       // Current recipe: prefer the one matching currentProcess.served_model_name.
       const active = currentProcess?.served_model_name ?? null;
