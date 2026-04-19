@@ -179,14 +179,28 @@ describe("delegateLoad", () => {
 });
 
 describe("delegateUnload", () => {
-  it("POSTs blanket /models/unload", async () => {
+  it("POSTs per-profile /api/models/unload/<model>", async () => {
     const seen: string[] = [];
     mockFetch((url, init) => {
       seen.push(`${init?.method ?? "GET"} ${url}`);
       return { status: 200, body: { ok: true } };
     });
     await delegateUnload(buildRecipe());
-    expect(seen).toEqual(["POST http://127.0.0.1:8080/models/unload"]);
+    expect(seen).toEqual(["POST http://127.0.0.1:8080/api/models/unload/qwopus-9b"]);
+  });
+
+  it("falls back to blanket /api/models/unload on 404", async () => {
+    const seen: string[] = [];
+    mockFetch((url, init) => {
+      seen.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/api/models/unload/qwopus-9b")) return { status: 404, body: {} };
+      return { status: 200, body: { ok: true } };
+    });
+    await delegateUnload(buildRecipe());
+    expect(seen).toEqual([
+      "POST http://127.0.0.1:8080/api/models/unload/qwopus-9b",
+      "POST http://127.0.0.1:8080/api/models/unload",
+    ]);
   });
 
   it("throws llama-swap-unreachable on 5xx", async () => {

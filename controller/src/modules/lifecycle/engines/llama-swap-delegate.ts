@@ -157,11 +157,17 @@ export async function delegateUnload(recipe: Recipe): Promise<void> {
       "recipe.extra_args.stargate.llama_swap_url is required"
     );
   }
-  const res = await fetch(`${extras.llama_swap_url}/models/unload`, { method: "POST" });
+  // Unload a specific profile first (v197+ supports /api/models/unload/<model>).
+  // If that misses, fall back to blanket unload.
+  const target = `${extras.llama_swap_url}/api/models/unload/${encodeURIComponent(extras.llama_swap_profile)}`;
+  let res = await fetch(target, { method: "POST" });
+  if (res.status === 404) {
+    res = await fetch(`${extras.llama_swap_url}/api/models/unload`, { method: "POST" });
+  }
   if (!res.ok) {
     throw new DelegateError(
       "llama-swap-unreachable",
-      `POST ${extras.llama_swap_url}/models/unload → ${res.status}`
+      `POST ${extras.llama_swap_url}/api/models/unload[/profile] → ${res.status}`
     );
   }
 }
