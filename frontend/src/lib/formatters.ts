@@ -39,11 +39,14 @@ function toGBFromMB(value: number | null | undefined): number {
   return Math.round((safe / 1024) * 100) / 100;
 }
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + "B";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toLocaleString();
+function formatNumber(n: number | null | undefined): string {
+  // STARGATE: tolerate null/undefined from backends that return nullable counters
+  // (e.g. /usage.totals.total_requests is null when no requests recorded).
+  const v = safeNumber(n, 0);
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(2) + "B";
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + "M";
+  if (v >= 1_000) return (v / 1_000).toFixed(1) + "K";
+  return v.toLocaleString();
 }
 
 function formatDuration(ms: number): string {
