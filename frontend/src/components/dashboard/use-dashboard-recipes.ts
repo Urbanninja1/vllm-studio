@@ -95,20 +95,37 @@ export function useDashboardRecipes(currentProcess: ProcessInfo | null) {
       const llamaSwapRunning = new Set<string>(
         (status as { llama_swap_running?: string[] } | null)?.llama_swap_running ?? [],
       );
+      const knownProfiles = new Set<string>();
       const merged = list.map((r: RecipeWithStatus) => {
-        // Match by recipe.id (our sync sets id === llama_swap_profile) OR by
-        // served_model_name / extra_args.stargate.llama_swap_profile.
         const extras = (r.extra_args ?? {}) as Record<string, unknown>;
         const stargate = (extras["stargate"] as Record<string, unknown> | undefined) ?? {};
         const profile =
           (typeof stargate["llama_swap_profile"] === "string" ? stargate["llama_swap_profile"] : null) ??
           r.served_model_name ??
           r.id;
+        if (typeof profile === "string") knownProfiles.add(profile);
         if (typeof profile === "string" && llamaSwapRunning.has(profile)) {
           return { ...r, status: "running" as const };
         }
         return r;
       });
+      // STARGATE: synthesize pseudo-recipe cards for llama-swap profiles that
+      // are running but don't have a matching recipe in Studio's SQLite
+      // (e.g. P6000 service-shelf models live only in config.yaml.template,
+      //  not in models.yaml, so the sync script never created recipes for them).
+      for (const profile of llamaSwapRunning) {
+        if (!knownProfiles.has(profile)) {
+          merged.push({
+            id: profile,
+            name: profile,
+            backend: "llama-swap",
+            model_path: profile,
+            status: "running",
+            served_model_name: profile,
+            extra_args: { stargate: { llama_swap_profile: profile, synthetic: true } },
+          } as unknown as RecipeWithStatus);
+        }
+      }
       setRecipes(merged);
 
       // Current recipe: prefer the one matching currentProcess.served_model_name.
