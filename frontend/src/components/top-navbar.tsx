@@ -5,22 +5,32 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   HardDrive,
-  MessageCircle,
   Server,
   Settings,
   Sun,
   Moon,
+  Activity,
+  Search,
+  List,
+  Wrench,
 } from "lucide-react";
 import { StatusDot } from "./app-sidebar/sidebar-status";
 import { useAppStore } from "@/store";
 import { useShallow } from "zustand/react/shallow";
 
+// STARGATE: nav reshaped for Stargate deploy.
+// - /chat + /chat2 removed (Caddy denies them; we use OpenWebUI for chat).
+// - /usage, /discover, /jobs, /setup added (upstream left them off the navbar).
+// - Labels hidden on mobile (< sm); icons-only so 8 tabs fit on iPhone.
 const tabs = [
   { href: "/", label: "Status", icon: BarChart3 },
   { href: "/recipes", label: "Models", icon: HardDrive },
-  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/logs", label: "Server", icon: Server },
+  { href: "/usage", label: "Usage", icon: Activity },
+  { href: "/discover", label: "Discover", icon: Search },
+  { href: "/jobs", label: "Jobs", icon: List },
   { href: "/configs", label: "Settings", icon: Settings },
+  { href: "/setup", label: "Setup", icon: Wrench },
 ];
 
 function ThemeToggle() {
@@ -52,13 +62,13 @@ export function TopNavbar({ children }: { children: React.ReactNode }) {
     return <div className="h-full w-full">{children}</div>;
   }
 
-  const isChat = pathname === "/chat" || pathname === "/chat2";
+  // STARGATE: no chat tab — we use OpenWebUI for chat, not Studio chat.
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Navbar */}
-      <nav className="w-full h-14 px-4 md:px-8 border-b border-(--border) bg-(--bg)/80 backdrop-blur-md shrink-0 flex items-center z-50">
-        <div className="max-w-7xl mx-auto w-full flex justify-between items-center">
+      <nav className="w-full h-14 px-2 sm:px-4 md:px-8 border-b border-(--border) bg-(--bg)/80 backdrop-blur-md shrink-0 flex items-center z-50">
+        <div className="max-w-7xl mx-auto w-full flex justify-between items-center gap-2">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
             <svg viewBox="0 0 48 48" className="w-7 h-7 text-(--fg)" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
@@ -82,29 +92,28 @@ export function TopNavbar({ children }: { children: React.ReactNode }) {
             </div>
           </Link>
 
-          {/* Center Navigation — pill tabs */}
-          <div className="hidden md:flex items-center gap-1 bg-(--surface) rounded-full p-1 border border-(--border)">
+          {/* Center Navigation — always visible. Icon-only on mobile, icon+label on sm+. */}
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-(--surface) rounded-full p-1 border border-(--border) overflow-x-auto scrollbar-hide">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive =
                 tab.href === "/"
-                  ? pathname === "/" || pathname === "/usage" || pathname === "/discover"
-                  : tab.href === "/chat"
-                    ? isChat
-                    : pathname.startsWith(tab.href);
+                  ? pathname === "/"
+                  : pathname.startsWith(tab.href);
 
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 flex items-center gap-1.5 ${
+                  aria-label={tab.label}
+                  className={`px-2 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 flex items-center gap-1.5 shrink-0 ${
                     isActive
                       ? "bg-(--bg) text-(--fg) shadow-sm border border-(--border)"
                       : "text-(--dim) hover:text-(--fg)"
                   }`}
                 >
                   <Icon className="w-4 h-4" />
-                  {tab.label}
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </Link>
               );
             })}
