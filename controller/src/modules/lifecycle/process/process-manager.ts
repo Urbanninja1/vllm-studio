@@ -18,6 +18,8 @@ import type { Logger } from "../../../core/logger";
 import type { LaunchResult, ProcessInfo, Recipe } from "../types";
 import type { EventManager } from "../../monitoring/event-manager";
 import { buildBackendCommand } from "../engines/backends";
+import { isDelegatedBackend } from "../../../../../shared/src/recipe";        // STARGATE
+import { delegateLoad, DelegateError } from "../engines/llama-swap-delegate"; // STARGATE
 import {
   buildEnvironment,
   collectChildren,
@@ -200,6 +202,31 @@ export const createProcessManager = (
       ...recipe,
       port: config.inference_port,
     };
+    // STARGATE: llama-swap backend delegates — no spawn, warmup-request + poll.
+    if (isDelegatedBackend(updatedRecipe.backend)) {
+      try {
+        await delegateLoad(updatedRecipe);
+        return {
+          success: true,
+          pid: null,
+          message: `delegated to llama-swap`,
+          log_file: primaryLogPathFor(config.data_dir, updatedRecipe.id),
+        };
+      } catch (err) {
+        const message =
+          err instanceof DelegateError
+            ? `[${err.kind}] ${err.message}`
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        return {
+          success: false,
+          pid: null,
+          message,
+          log_file: primaryLogPathFor(config.data_dir, updatedRecipe.id),
+        };
+      }
+    }
     let command: string[] | null = null;
     try {
       command = buildBackendCommand(updatedRecipe, config);

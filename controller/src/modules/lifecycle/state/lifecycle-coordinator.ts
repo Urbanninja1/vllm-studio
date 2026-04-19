@@ -9,6 +9,7 @@ import { CONTROLLER_EVENTS } from "../../../contracts/controller-events";
 import { pidExists } from "../process/process-utilities";
 import { isRecipeRunning } from "../recipes/recipe-matching";
 import type { LaunchResult, ProcessInfo, Recipe } from "../types";
+import { isDelegatedBackend } from "../../../../../shared/src/recipe"; // STARGATE
 import type { Config } from "../../../config/env";
 import type { Logger } from "../../../core/logger";
 import type { LaunchState } from "./launch-state";
@@ -296,9 +297,13 @@ export const createLifecycleCoordinator = (args: {
     const startTs = Date.now();
     const release = await switchLock.acquire();
     try {
-      await deps.eventManager.publishLaunchProgress(recipe.id, "evicting", "Clearing VRAM...", 0);
-      await evictCurrentModel(true);
-      await delay(1000);
+      if (!isDelegatedBackend(recipe.backend)) {
+        // STARGATE: llama-swap manages its own eviction via swap groups — skip upstream's
+        // single-active-model VRAM clear for delegated backends.
+        await deps.eventManager.publishLaunchProgress(recipe.id, "evicting", "Clearing VRAM...", 0);
+        await evictCurrentModel(true);
+        await delay(1000);
+      }
 
       if (cancelController.signal.aborted) {
         await deps.eventManager.publishLaunchProgress(

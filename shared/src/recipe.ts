@@ -5,7 +5,19 @@ export type Backend =
   | "llamacpp"
   | "transformers"
   | "tabbyapi"
-  | "exllamav3";
+  | "exllamav3"
+  | "llama-swap"; // STARGATE:fork-owned — routes lifecycle through llama-swap admin surface
+
+/**
+ * Backends that skip upstream's spawn path and delegate to an external router.
+ * Predicate-based dispatch survives upstream Backend-enum renames better than
+ * string-equality checks scattered across the codebase.
+ */
+export const DELEGATED_BACKENDS = ["llama-swap"] as const satisfies readonly Backend[];
+
+export function isDelegatedBackend(b: Backend): boolean {
+  return (DELEGATED_BACKENDS as readonly string[]).includes(b);
+}
 
 /**
  * Canonical recipe shape as sent over the wire (JSON).

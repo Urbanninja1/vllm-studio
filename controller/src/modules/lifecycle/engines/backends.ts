@@ -5,6 +5,8 @@ import type { Recipe } from "../types";
 import type { Config } from "../../../config/env";
 import { resolveBinary } from "../../../core/command";
 import { resolveVllmRecipePythonPath } from "../runtime/vllm-python-path";
+import { isDelegatedBackend } from "../../../../../shared/src/recipe"; // STARGATE
+import { buildLlamaSwapCommand } from "./llama-swap-delegate";         // STARGATE
 
 /**
  * Normalize JSON-like arguments for CLI flags.
@@ -387,6 +389,9 @@ export const buildExllamav3Command = (recipe: Recipe, config: Config): string[] 
  * @returns Backend-specific command.
  */
 export const buildBackendCommand = (recipe: Recipe, config: Config): string[] => {
+  if (isDelegatedBackend(recipe.backend)) { // STARGATE: llama-swap never spawns
+    return buildLlamaSwapCommand(recipe);
+  }
   if (recipe.backend === "sglang") {
     return buildSglangCommand(recipe, config);
   }
