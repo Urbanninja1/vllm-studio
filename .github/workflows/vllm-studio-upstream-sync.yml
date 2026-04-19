@@ -1,0 +1,124 @@
+name: vllm-studio-upstream-sync
+
+# Weekly rebase of stargate/main against 0xSero/vllm-studio main.
+# Never auto-merges — always opens a PR on clean rebase or an issue on conflict.
+# git rerere cache replays prior manual resolutions across runs.
+
+on:
+  schedule:
+    # Mon 06:17 UTC — off-peak, avoids the 00:00 cron-storm.
+    - cron: '17 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  sync:
+    # IMPORTANT: this runs on the stargate-side Urbanninja1/vllm-studio fork,
+    # NOT on the main stargate repo. Deploy by pushing this workflow file to
+    # the fork repo (or mirror via a companion workflow). Keeps .github/workflows/
+    # in the main repo as the source of truth but executes against the fork.
+    runs-on: ubuntu-latest
+    if: github.repository == 'Urbanninja1/vllm-studio'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stargate/main
+          fetch-depth: 0
+          # SYNC_PAT must be a fine-grained PAT with contents:write + pull-requests:write
+          # on this fork. GITHUB_TOKEN default cannot trigger CI on PRs it opens.
+          token: ${{ secrets.SYNC_PAT }}
+
+      - uses: actions/cache@v4
+        with:
+          path: .git/rr-cache
+          key: rerere-${{ github.run_id }}
+          restore-keys: rerere-
+
+      - name: Configure git
+        run: |
+          git config user.name "stargate-sync[bot]"
+          git config user.email "sync@stargate.local"
+          git config rerere.enabled true
+          git remote add upstream https://github.com/0xSero/vllm-studio.git
+          git fetch upstream main --tags
+
+      - name: Rebase on throwaway branch
+        id: rebase
+        run: |
+          SYNC_BRANCH="sync/upstream-$(date +%Y-%m-%d)"
+          echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
+          git checkout -b "$SYNC_BRANCH"
+          if git rebase --rerere-autoupdate upstream/main; then
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+          else
+            git rebase --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install deps + typecheck controller (clean path only)
+        if: steps.rebase.outputs.status == 'clean'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          export PATH="$HOME/.bun/bin:$PATH"
+          cd controller
+          bun install --ignore-scripts
+          # Fail the sync if Stargate-authored files regress; upstream-authored
+          # pre-existing type errors are ignored via grep.
+          bun run typecheck 2>&1 | tee /tmp/tsc.log || true
+          if grep -E '(llama-swap-delegate|stargate-extras|recipe-serializer\.ts|inference-client\.ts)' /tmp/tsc.log; then
+            echo "Stargate-authored files regressed — failing sync."
+            exit 1
+          fi
+
+      - name: Regenerate patch series safety net
+        if: steps.rebase.outputs.status == 'clean'
+        run: |
+          mkdir -p patches
+          rm -f patches/*.patch
+          git format-patch upstream/main..HEAD -o patches/ --zero-commit
+          git add patches/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(sync): regenerate patch series [skip ci]"
+          fi
+
+      - name: Push sync branch + open PR
+        if: steps.rebase.outputs.status == 'clean'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+        run: |
+          git push origin "${{ steps.rebase.outputs.branch }}"
+          UPSTREAM_SHA=$(git rev-parse --short upstream/main)
+          gh pr create \
+            --base stargate/main \
+            --head "${{ steps.rebase.outputs.branch }}" \
+            --title "chore: weekly upstream sync $(date +%Y-%m-%d) @ $UPSTREAM_SHA" \
+            --body "Automated rebase against upstream/main @ $UPSTREAM_SHA. Typecheck clean on Stargate-authored files. Manual review required — do NOT auto-merge." \
+            --label automated,upstream-sync \
+            --assignee Urbanninja1
+
+      - name: Open issue on conflict
+        if: steps.rebase.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+        run: |
+          UPSTREAM_SHA=$(git rev-parse --short upstream/main)
+          gh issue create \
+            --title "Upstream sync conflict $(date +%Y-%m-%d) @ $UPSTREAM_SHA" \
+            --label upstream-sync,conflict \
+            --body "Weekly rebase failed. To reproduce locally:
+
+            cd external/vllm-studio-src
+            git fetch vllm-studio-upstream main
+            git rebase --rerere-autoupdate vllm-studio-upstream/main
+
+          Safety-net reset (if the conflict is unresolvable):
+
+            git reset --hard vllm-studio-upstream/main
+            git am ../../patches/*.patch
+
+          Hard cap: if this conflict blocks sync ≥3 weeks, decommission the fork
+          per docs/specs/vllm-studio-integration.md#decommission-plan."
