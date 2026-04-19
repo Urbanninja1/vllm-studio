@@ -82,14 +82,41 @@ export function useDashboardRecipes(currentProcess: ProcessInfo | null) {
 
   const reload = useCallback(async () => {
     try {
-      const data = await api.getRecipes();
+      const [data, status] = await Promise.all([
+        api.getRecipes(),
+        // STARGATE: /status augments each recipe's status with llama-swap
+        // readiness so the Dashboard shows ALL 7 preloads as running, not
+        // just the synthesized currentProcess one.
+        api.getStatus().catch(() => null),
+      ]);
       const list = data.recipes || [];
-      setRecipes(list);
 
-      // Find running recipe if any
-      const running = currentProcess
-        ? list.find((r: RecipeWithStatus) => r.status === "running") || null
-        : null;
+      // STARGATE: merge llama_swap_running into recipe.status.
+      const llamaSwapRunning = new Set<string>(
+        (status as { llama_swap_running?: string[] } | null)?.llama_swap_running ?? [],
+      );
+      const merged = list.map((r: RecipeWithStatus) => {
+        // Match by recipe.id (our sync sets id === llama_swap_profile) OR by
+        // served_model_name / extra_args.stargate.llama_swap_profile.
+        const extras = (r.extra_args ?? {}) as Record<string, unknown>;
+        const stargate = (extras["stargate"] as Record<string, unknown> | undefined) ?? {};
+        const profile =
+          (typeof stargate["llama_swap_profile"] === "string" ? stargate["llama_swap_profile"] : null) ??
+          r.served_model_name ??
+          r.id;
+        if (typeof profile === "string" && llamaSwapRunning.has(profile)) {
+          return { ...r, status: "running" as const };
+        }
+        return r;
+      });
+      setRecipes(merged);
+
+      // Current recipe: prefer the one matching currentProcess.served_model_name.
+      const active = currentProcess?.served_model_name ?? null;
+      const running =
+        (active ? merged.find((r: RecipeWithStatus) => r.id === active) : null) ??
+        merged.find((r: RecipeWithStatus) => r.status === "running") ??
+        null;
       setCurrentRecipe(running);
       await refreshLogs(running);
     } catch (e) {
