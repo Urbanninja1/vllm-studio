@@ -92,13 +92,15 @@ jobs:
         run: |
           git push origin "${{ steps.rebase.outputs.branch }}"
           UPSTREAM_SHA=$(git rev-parse --short upstream/main)
-          gh pr create \
+          PR_URL=$(gh pr create \
             --base stargate/main \
             --head "${{ steps.rebase.outputs.branch }}" \
             --title "chore: weekly upstream sync $(date +%Y-%m-%d) @ $UPSTREAM_SHA" \
             --body "Automated rebase against upstream/main @ $UPSTREAM_SHA. Typecheck clean on Stargate-authored files. Manual review required — do NOT auto-merge." \
-            --label automated,upstream-sync \
-            --assignee Urbanninja1
+            --assignee Urbanninja1)
+          echo "Opened: $PR_URL"
+          # Apply labels best-effort so a missing label doesn't abort the run.
+          gh pr edit "$PR_URL" --add-label automated --add-label upstream-sync || echo "(labels skipped)"
 
       - name: Open issue on conflict
         if: steps.rebase.outputs.status == 'conflict'
