@@ -102,15 +102,16 @@ export const registerSystemRoutes = (app: Hono, context: AppContext): void => {
     const current = await context.processManager.findInferenceProcess(
       context.config.inference_port
     );
-    // STARGATE: augment status with llama-swap running set so the UI shows
-    // delegated models even when no native process is spawned.
-    const delegatedModels = current ? [] : await probeLlamaSwapRunning();
+    // STARGATE: always include llama-swap's full ready set (so the UI can
+    // list all 7 preloads even when `process` is already populated via the
+    // synthesized ProcessInfo route).
+    const delegatedModels = await probeLlamaSwapRunning();
     return ctx.json({
       running: Boolean(current) || delegatedModels.length > 0,
       process: current,
       inference_port: context.config.inference_port,
       launching: context.launchState.getLaunchingRecipeId(),
-      llama_swap_running: delegatedModels, // STARGATE: always present (empty array if none)
+      llama_swap_running: delegatedModels, // STARGATE: always full ready set
     });
   });
 

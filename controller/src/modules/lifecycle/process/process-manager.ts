@@ -48,6 +48,35 @@ export interface ProcessManager {
  * @param eventManager - Event manager for log forwarding.
  * @returns Process manager.
  */
+// STARGATE: probe llama-swap for its running set and synthesize a ProcessInfo
+// for the first ready model so the UI Dashboard shows Active + "Model Loaded"
+// despite no native child process.
+async function findDelegatedInferenceProcess(): Promise<ProcessInfo | null> {
+  const url = process.env["STARGATE_LLAMA_SWAP_FILTER_URL"] ?? "http://127.0.0.1:8084";
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 1500);
+    try {
+      const res = await fetch(`${url}/running`, { signal: ctl.signal });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { running?: Array<{ model: string; state: string }> };
+      const ready = (body.running ?? []).find((m) => m.state === "ready");
+      if (!ready) return null;
+      return {
+        pid: 0,
+        backend: "llama-swap",
+        model_path: ready.model,
+        port: 8080,
+        served_model_name: ready.model,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
 export const createProcessManager = (
   config: Config,
   logger: Logger,
@@ -59,6 +88,11 @@ export const createProcessManager = (
    * @returns Process info or null.
    */
   const findInferenceProcess = async (port: number): Promise<ProcessInfo | null> => {
+    // STARGATE: when no native child is spawned but llama-swap is serving a
+    // delegated model, synthesize a ProcessInfo so the UI's Dashboard shows
+    // Active + Model Loaded.
+    const synthesized = await findDelegatedInferenceProcess();
+    if (synthesized) return synthesized;
     const processes = listProcesses();
     for (const proc of processes) {
       const backend = detectBackend(proc.args);
