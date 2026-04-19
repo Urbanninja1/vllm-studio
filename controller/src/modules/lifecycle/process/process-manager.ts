@@ -49,8 +49,19 @@ export interface ProcessManager {
  * @returns Process manager.
  */
 // STARGATE: probe llama-swap for its running set and synthesize a ProcessInfo
-// for the first ready model so the UI Dashboard shows Active + "Model Loaded"
-// despite no native child process.
+// for a DETERMINISTIC ready model so the UI Dashboard's Status section stays
+// on one model (no slideshow cycling). We prefer persistent models in this
+// priority order; the first match wins.
+const PERSISTENT_PRIORITY = [
+  "gemma-4-31b-uncensored",     // 3090 #2 persistent (uncensored vision+text, Mode C default)
+  "qwen3.5-397b",                // 3090 #3 persistent (frontier aligned)
+  "qwen3.6-35b-a3b-hauhau-p6000", // P6000 #0 persistent (fast uncensored)
+  "gemma-4-e4b-hauhau-p6000",    // P6000 #1 shelf (OWU task model)
+  "qwen3-embed-p6000",            // P6000 #1 shelf (embed)
+  "qwen3-reranker-p6000",         // P6000 #1 shelf (rerank)
+  "glm-ocr-p6000",                // P6000 #1 shelf (OCR)
+];
+
 async function findDelegatedInferenceProcess(): Promise<ProcessInfo | null> {
   const url = process.env["STARGATE_LLAMA_SWAP_FILTER_URL"] ?? "http://127.0.0.1:8084";
   try {
@@ -60,14 +71,26 @@ async function findDelegatedInferenceProcess(): Promise<ProcessInfo | null> {
       const res = await fetch(`${url}/running`, { signal: ctl.signal });
       if (!res.ok) return null;
       const body = (await res.json()) as { running?: Array<{ model: string; state: string }> };
-      const ready = (body.running ?? []).find((m) => m.state === "ready");
-      if (!ready) return null;
+      const ready = new Set(
+        (body.running ?? []).filter((m) => m.state === "ready").map((m) => m.model)
+      );
+      if (ready.size === 0) return null;
+      // Pick the highest-priority persistent that's ready; fall back to any
+      // ready model by stable sort.
+      let picked: string | null = null;
+      for (const candidate of PERSISTENT_PRIORITY) {
+        if (ready.has(candidate)) { picked = candidate; break; }
+      }
+      if (!picked) {
+        picked = [...ready].sort()[0] ?? null;
+      }
+      if (!picked) return null;
       return {
         pid: 0,
         backend: "llama-swap",
-        model_path: ready.model,
+        model_path: picked,
         port: 8080,
-        served_model_name: ready.model,
+        served_model_name: picked,
       };
     } finally {
       clearTimeout(timer);

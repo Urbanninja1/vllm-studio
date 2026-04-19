@@ -54,11 +54,43 @@ export function useRecipesContentModel() {
 
   const loadRecipes = useCallback(async () => {
     try {
-      const [recipesData, modelsData] = await Promise.all([
+      const [recipesData, modelsData, status] = await Promise.all([
         api.getRecipes().catch(() => ({ recipes: [] as RecipeWithStatus[] })),
         api.getModels().catch(() => ({ models: [] as ModelInfo[] })),
+        // STARGATE: cross-reference llama-swap running set.
+        api.getStatus().catch(() => null),
       ]);
-      const recipesList = recipesData.recipes || [];
+      const raw = recipesData.recipes || [];
+      const llamaSwapRunning = new Set<string>(
+        (status as { llama_swap_running?: string[] } | null)?.llama_swap_running ?? [],
+      );
+      const knownProfiles = new Set<string>();
+      const merged = raw.map((r) => {
+        const extras = (r.extra_args ?? {}) as Record<string, unknown>;
+        const stargate = (extras["stargate"] as Record<string, unknown> | undefined) ?? {};
+        const profile =
+          (typeof stargate["llama_swap_profile"] === "string" ? stargate["llama_swap_profile"] : null) ??
+          r.served_model_name ??
+          r.id;
+        if (typeof profile === "string") knownProfiles.add(profile);
+        if (typeof profile === "string" && llamaSwapRunning.has(profile)) {
+          return { ...r, status: "running" as const };
+        }
+        return r;
+      });
+      const synthesized: RecipeWithStatus[] = [];
+      for (const profile of llamaSwapRunning) {
+        if (!knownProfiles.has(profile)) {
+          synthesized.push({
+            id: profile, name: profile, backend: "llama-swap", model_path: profile,
+            status: "running", served_model_name: profile,
+            extra_args: { stargate: { llama_swap_profile: profile, synthetic: true } },
+          } as unknown as RecipeWithStatus);
+        }
+      }
+      const runningFirst = [...synthesized, ...merged.filter((r) => r.status === "running")];
+      const rest = merged.filter((r) => r.status !== "running");
+      const recipesList = [...runningFirst, ...rest];
       setRecipes(recipesList);
       const running = recipesList.find((r) => r.status === "running")?.id || null;
       setRunningRecipeId(running);
