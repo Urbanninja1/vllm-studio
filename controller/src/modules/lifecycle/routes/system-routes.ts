@@ -70,7 +70,11 @@ export const registerSystemRoutes = (app: Hono, context: AppContext): void => {
       context.config.inference_port
     );
     let inferenceReady = false;
-    if (current) {
+    // STARGATE: delegated backends are inference-ready iff llama-swap responded
+    // — skip the inference_port probe (llama-swap is on :8080, not 8000).
+    if (current?.backend === "llama-swap") {
+      inferenceReady = true;
+    } else if (current) {
       try {
         const response = await fetchInference(context, "/health", { timeoutMs: 5000 });
         inferenceReady = response.status === 200;
@@ -79,21 +83,12 @@ export const registerSystemRoutes = (app: Hono, context: AppContext): void => {
       }
     }
 
-    // STARGATE: when no native process is running, check llama-swap delegated set.
-    let delegatedModels: string[] = [];
-    if (!current) {
-      delegatedModels = await probeLlamaSwapRunning();
-      if (delegatedModels.length > 0) inferenceReady = true;
-    }
-
     const payload: HealthResponse = {
       status: "ok",
       version: "0.3.1",
       inference_ready: inferenceReady,
       backend_reachable: inferenceReady,
-      running_model: current
-        ? (current.served_model_name ?? current.model_path ?? null)
-        : (delegatedModels[0] ?? null),
+      running_model: current ? (current.served_model_name ?? current.model_path ?? null) : null,
     };
     return ctx.json(payload);
   });
