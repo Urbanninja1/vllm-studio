@@ -13,6 +13,27 @@ import { buildCompatibilityReport } from "../platform/compatibility-report";
 import { fetchInference } from "../../../services/inference/inference-client";
 import { fetchLocal } from "../../../http/local-fetch";
 
+// STARGATE: probe llama-swap filter proxy for its running set, so /health
+// and /status surface the models that upstream's process-manager can't see
+// (delegated backend bypasses the spawn path).
+async function probeLlamaSwapRunning(): Promise<string[]> {
+  const url = process.env["STARGATE_LLAMA_SWAP_FILTER_URL"] ?? "http://127.0.0.1:8084";
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 1500);
+    try {
+      const res = await fetch(`${url}/running`, { signal: ctl.signal });
+      if (!res.ok) return [];
+      const body = (await res.json()) as { running?: Array<{ model: string; state: string }> };
+      return (body.running ?? []).filter((m) => m.state === "ready").map((m) => m.model);
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Register system routes.
  * @param app - Hono application.
@@ -58,12 +79,21 @@ export const registerSystemRoutes = (app: Hono, context: AppContext): void => {
       }
     }
 
+    // STARGATE: when no native process is running, check llama-swap delegated set.
+    let delegatedModels: string[] = [];
+    if (!current) {
+      delegatedModels = await probeLlamaSwapRunning();
+      if (delegatedModels.length > 0) inferenceReady = true;
+    }
+
     const payload: HealthResponse = {
       status: "ok",
       version: "0.3.1",
       inference_ready: inferenceReady,
       backend_reachable: inferenceReady,
-      running_model: current ? (current.served_model_name ?? current.model_path ?? null) : null,
+      running_model: current
+        ? (current.served_model_name ?? current.model_path ?? null)
+        : (delegatedModels[0] ?? null),
     };
     return ctx.json(payload);
   });
@@ -72,11 +102,15 @@ export const registerSystemRoutes = (app: Hono, context: AppContext): void => {
     const current = await context.processManager.findInferenceProcess(
       context.config.inference_port
     );
+    // STARGATE: augment status with llama-swap running set so the UI shows
+    // delegated models even when no native process is spawned.
+    const delegatedModels = current ? [] : await probeLlamaSwapRunning();
     return ctx.json({
-      running: Boolean(current),
+      running: Boolean(current) || delegatedModels.length > 0,
       process: current,
       inference_port: context.config.inference_port,
       launching: context.launchState.getLaunchingRecipeId(),
+      llama_swap_running: delegatedModels, // STARGATE: always present (empty array if none)
     });
   });
 
