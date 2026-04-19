@@ -110,12 +110,11 @@ export function useDashboardRecipes(currentProcess: ProcessInfo | null) {
         return r;
       });
       // STARGATE: synthesize pseudo-recipe cards for llama-swap profiles that
-      // are running but don't have a matching recipe in Studio's SQLite
-      // (e.g. P6000 service-shelf models live only in config.yaml.template,
-      //  not in models.yaml, so the sync script never created recipes for them).
+      // are running but don't have a matching recipe in Studio's SQLite.
+      const synthesized: RecipeWithStatus[] = [];
       for (const profile of llamaSwapRunning) {
         if (!knownProfiles.has(profile)) {
-          merged.push({
+          synthesized.push({
             id: profile,
             name: profile,
             backend: "llama-swap",
@@ -126,7 +125,12 @@ export function useDashboardRecipes(currentProcess: ProcessInfo | null) {
           } as unknown as RecipeWithStatus);
         }
       }
-      setRecipes(merged);
+      // Running-first ordering — synthetic P6000 cards + matched-running
+      // recipes bubble to the top so the first 12 the ModelsSection renders
+      // always include every currently-loaded model.
+      const running = [...synthesized, ...merged.filter((r) => r.status === "running")];
+      const rest = merged.filter((r) => r.status !== "running");
+      setRecipes([...running, ...rest]);
 
       // Current recipe: prefer the one matching currentProcess.served_model_name.
       const active = currentProcess?.served_model_name ?? null;

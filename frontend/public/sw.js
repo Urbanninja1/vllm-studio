@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vllm-studio-v9';
+const CACHE_NAME = 'vllm-studio-v10-stargate';
 const STATIC_ASSETS = [
   '/',
   '/chat',
