@@ -66,10 +66,9 @@ export function TopNavbar({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
-      {/* Navbar */}
-      <nav className="w-full h-14 px-2 sm:px-4 md:px-8 border-b border-(--border) bg-(--bg)/80 backdrop-blur-md shrink-0 flex items-center z-50">
+      {/* Row 1: Logo on the left, theme + status on the right */}
+      <nav className="w-full h-12 px-3 sm:px-4 md:px-8 border-b border-(--border) bg-(--bg)/80 backdrop-blur-md shrink-0 flex items-center z-50">
         <div className="max-w-7xl mx-auto w-full flex justify-between items-center gap-2">
-          {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
             <svg viewBox="0 0 48 48" className="w-7 h-7 text-(--fg)" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
               <rect x="6" y="6" width="36" height="36" rx="9" />
@@ -85,44 +84,44 @@ export function TopNavbar({ children }: { children: React.ReactNode }) {
               <line x1="16.5" y1="16" x2="31.5" y2="32" />
               <line x1="31.5" y1="16" x2="16.5" y2="32" />
             </svg>
-            <div className="flex flex-col">
-              <span className="font-bold tracking-tight text-sm leading-none text-(--fg)">
-                vLLM Studio
-              </span>
-            </div>
+            <span className="font-bold tracking-tight text-sm leading-none text-(--fg)">
+              vLLM Studio
+            </span>
           </Link>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <StatusDot />
+          </div>
+        </div>
+      </nav>
 
-          {/* Center Navigation — always visible. Icon-only on mobile, icon+label on sm+. */}
-          <div className="flex items-center gap-0.5 sm:gap-1 bg-(--surface) rounded-full p-1 border border-(--border) overflow-x-auto scrollbar-hide">
+      {/* Row 2: full-width tab rail — each tab stretches to share the width equally */}
+      <nav className="w-full border-b border-(--border) bg-(--bg)/70 backdrop-blur-md shrink-0 z-40">
+        <div className="max-w-7xl mx-auto w-full px-2 sm:px-4 md:px-8">
+          <div className="flex items-stretch w-full">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive =
                 tab.href === "/"
                   ? pathname === "/"
                   : pathname.startsWith(tab.href);
-
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
                   aria-label={tab.label}
-                  className={`px-2 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 flex items-center gap-1.5 shrink-0 ${
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex-1 min-w-0 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-3 py-2.5 text-xs sm:text-sm font-medium transition-colors border-b-2 ${
                     isActive
-                      ? "bg-(--bg) text-(--fg) shadow-sm border border-(--border)"
-                      : "text-(--dim) hover:text-(--fg)"
+                      ? "border-(--fg) text-(--fg) bg-(--surface)/50"
+                      : "border-transparent text-(--dim) hover:text-(--fg) hover:bg-(--surface)/30"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{tab.label}</span>
                 </Link>
               );
             })}
-          </div>
-
-          {/* Right side — theme toggle + status */}
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <StatusDot />
           </div>
         </div>
       </nav>
