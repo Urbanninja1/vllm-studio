@@ -19,17 +19,23 @@ export function createSystemApi(core: ApiCore) {
       running: boolean;
       process: ProcessInfo | null;
       inference_port: number;
+      // STARGATE: preserve full ready set from llama-swap so Dashboard /
+      // Recipes pages can mark every loaded profile as running (not just the
+      // single synthesized currentProcess).
+      llama_swap_running?: string[];
     }> => {
       const data = await core.request<{
         running: boolean;
         process: ProcessInfo | null;
         inference_port: number;
+        llama_swap_running?: string[];
       }>("/status");
 
       return {
         running: data.running ?? !!data.process,
         process: data.process ?? null,
         inference_port: data.inference_port || 8000,
+        llama_swap_running: data.llama_swap_running ?? [],
       };
     },
 
