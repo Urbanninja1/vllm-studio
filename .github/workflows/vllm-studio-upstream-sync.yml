@@ -49,6 +49,14 @@ jobs:
       - name: Rebase on throwaway branch
         id: rebase
         run: |
+          # Early exit: if upstream has zero new commits past stargate/main,
+          # don't rebase/push/PR a no-op.
+          NEW_UPSTREAM=$(git rev-list --count stargate/main..upstream/main)
+          if [ "$NEW_UPSTREAM" = "0" ]; then
+            echo "status=noop" >> "$GITHUB_OUTPUT"
+            echo "Upstream has no new commits since last sync. Exit clean."
+            exit 0
+          fi
           SYNC_BRANCH="sync/upstream-$(date +%Y-%m-%d)"
           echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
           git checkout -b "$SYNC_BRANCH"
@@ -90,14 +98,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SYNC_PAT }}
         run: |
-          # Zero-diff early exit — clean rebase with no new upstream commits
-          # since last sync means there's nothing to PR. Don't push a no-op.
-          BEHIND=$(git rev-list --count HEAD..stargate/main)
-          AHEAD=$(git rev-list --count stargate/main..HEAD)
-          if [ "$AHEAD" = "0" ]; then
-            echo "No new upstream commits since last sync — skipping PR."
-            exit 0
-          fi
           git push origin "${{ steps.rebase.outputs.branch }}"
           UPSTREAM_SHA=$(git rev-parse --short upstream/main)
           PR_URL=$(gh pr create \
