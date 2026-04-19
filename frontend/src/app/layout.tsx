@@ -46,9 +46,15 @@ export const metadata: Metadata = {
 
 const bootScript = `${getThemeBootstrapScript()}
   const isProd = ${process.env.NODE_ENV === "production" ? "true" : "false"};
-  if (isProd && 'serviceWorker' in navigator) {
+  // STARGATE: service worker disabled. Studio is always-online LAN.
+  // On first load after this deploy, unregister any legacy SW so iOS Safari
+  // stops serving pre-Stargate cached HTML. Safe to call even if nothing is
+  // registered.
+  if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => r.unregister());
+      }).catch(() => {});
     });
   }
   const setAppHeight = () => {
