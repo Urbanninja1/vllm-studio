@@ -155,22 +155,22 @@ export function LogsViewer({ sources }: { sources: LogSource[] }) {
             <LevelToggle
               level="DEBUG"
               active={levels.has("DEBUG")}
-              onToggle={() => toggleSet(setLevels, "DEBUG")}
+              onToggle={() => toggleSet<LogLine["level"]>(setLevels, "DEBUG")}
             />
             <LevelToggle
               level="INFO"
               active={levels.has("INFO")}
-              onToggle={() => toggleSet(setLevels, "INFO")}
+              onToggle={() => toggleSet<LogLine["level"]>(setLevels, "INFO")}
             />
             <LevelToggle
               level="WARN"
               active={levels.has("WARN")}
-              onToggle={() => toggleSet(setLevels, "WARN")}
+              onToggle={() => toggleSet<LogLine["level"]>(setLevels, "WARN")}
             />
             <LevelToggle
               level="ERROR"
               active={levels.has("ERROR")}
-              onToggle={() => toggleSet(setLevels, "ERROR")}
+              onToggle={() => toggleSet<LogLine["level"]>(setLevels, "ERROR")}
             />
 
             <IconBtn title={paused ? "Resume tail (space)" : "Pause tail (space)"} onClick={() => setPaused(!paused)}>

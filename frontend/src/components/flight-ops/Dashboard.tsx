@@ -454,11 +454,69 @@ function DiskPanel({ disks }: { disks: DiskRow[] }) {
    Gracefully degrades on controller-down → read-only last-known state.
    ========================================================================= */
 
+/* ============================================================
+ * Live backend — hits /api/stargate/dashboard which aggregates
+ * Agent API (:8096) + llama-swap (:8080) in one server-side fetch.
+ * Polls every 2s while the tab is visible; pauses on hide.
+ * Falls back to baked defaults if the backend is unreachable so
+ * the UI doesn't stutter during transient gateway errors.
+ * ============================================================ */
+
+interface DashboardPayload {
+  gpus: GPU[];
+  services: Service[];
+  running: RunningModel[];
+  disks: DiskRow[];
+  lastTickMs: number;
+  sources: { agent_api: boolean; llama_swap: boolean };
+  fetched_at: string;
+}
+
 function useDashboardData() {
-  // Replace with SWR + native EventSource in real deploy. Sample shapes shown
-  // inline so the components are self-contained for review.
-  const [lastTickMs] = useState(2000);
-  const gpus: GPU[] = [
+  const [payload, setPayload] = useState<DashboardPayload>(() => ({
+    gpus: FALLBACK_GPUS,
+    services: FALLBACK_SERVICES,
+    running: FALLBACK_RUNNING,
+    disks: FALLBACK_DISKS,
+    lastTickMs: 2000,
+    sources: { agent_api: false, llama_swap: false },
+    fetched_at: new Date().toISOString(),
+  }));
+
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const r = await fetch("/api/stargate/dashboard", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as DashboardPayload;
+        if (cancelled) return;
+        // Empty arrays = upstream down; keep previous payload to avoid UI flash
+        if ((j.gpus?.length ?? 0) > 0) setPayload(j);
+      } catch {
+        // swallow — next tick retries
+      }
+    };
+    pull();
+    const onVis = () => {
+      if (!document.hidden) pull();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const id = setInterval(() => {
+      if (!document.hidden) pull();
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
+  return payload;
+}
+
+/* Fallback data — rendered only until first backend response arrives. */
+const FALLBACK_GPUS: GPU[] = [
     {
       id: 0, cuda: 0, pci: "01:00",
       name: "Quadro P6000", label: "P6000 #0",
@@ -497,9 +555,9 @@ function useDashboardData() {
       gen_tok_s: 16.2,
       hero_model: "qwen3.5-397b [--n-cpu-moe 60]",
     },
-  ];
+];
 
-  const services: Service[] = [
+const FALLBACK_SERVICES: Service[] = [
     { name: "llama-swap", port: 8080, state: "active" },
     { name: "llama-swap-proxy", port: 8084, state: "active" },
     { name: "open-webui", port: 3000, state: "active" },
@@ -523,9 +581,9 @@ function useDashboardData() {
     { name: "splade", port: 8089, state: "active" },
     { name: "vllm-studio-ctrl", port: 8300, state: "failed" },
     { name: "postgresql", port: 5432, state: "active" },
-  ];
+];
 
-  const running: RunningModel[] = [
+const FALLBACK_RUNNING: RunningModel[] = [
     {
       id: "qwen3.6-35b-a3b-hauhau-p6000",
       gpu_label: "P6000 #0",
@@ -566,14 +624,11 @@ function useDashboardData() {
       state: "idle",
       notes: "gpu-3 on-demand",
     },
-  ];
+];
 
-  const disks: DiskRow[] = [
+const FALLBACK_DISKS: DiskRow[] = [
     { mount: "/", device: "nvme0n1p2", used_gb: 2600, total_gb: 3600, pct: 72, state: "warn" },
     { mount: "/models", device: "nvme1", used_gb: 820, total_gb: 2000, pct: 41, state: "ok" },
     { mount: "/output", device: "md0", used_gb: 1400, total_gb: 8000, pct: 18, state: "ok" },
     { mount: "/swap", device: "(disabled)", used_gb: 0, total_gb: 32, pct: 0, state: "disabled" },
-  ];
-
-  return { gpus, services, running, disks, lastTickMs };
-}
+];
