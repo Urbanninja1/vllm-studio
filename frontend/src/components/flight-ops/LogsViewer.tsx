@@ -44,8 +44,22 @@ interface LogLine {
   isNew?: boolean;
 }
 
-export function LogsViewer({ sources }: { sources: LogSource[] }) {
-  const [selected, setSelected] = useState<string>("llama-swap");
+/** Default source list — Mode C core Stargate services.
+ *
+ * Rates are placeholder steady-state estimates; real throughput shows up in
+ * the pressure wave once the stream is live. Users can override by passing
+ * a `sources` prop (storybook / tests). */
+const DEFAULT_SOURCES: LogSource[] = [
+  { kind: "unit", name: "llama-swap", rate_lps: 0 },
+  { kind: "unit", name: "stargate-mcp", rate_lps: 0 },
+  { kind: "unit", name: "stargate-agent-api", rate_lps: 0 },
+  { kind: "unit", name: "stargate-voice-agent", rate_lps: 0 },
+  { kind: "unit", name: "stargate-openrag", rate_lps: 0 },
+  { kind: "docker", name: "openrag-backend", rate_lps: 0 },
+];
+
+export function LogsViewer({ sources = DEFAULT_SOURCES }: { sources?: LogSource[] } = {}) {
+  const [selected, setSelected] = useState<string>(sources[0]?.name ?? "llama-swap");
   const [levels, setLevels] = useState<Set<LogLine["level"]>>(
     new Set(["DEBUG", "INFO", "WARN", "ERROR"]),
   );
@@ -334,29 +348,61 @@ function toggleSet<T>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, key:
 function useLogStream(unit: string, paused: boolean) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [rate, setRate] = useState(0);
+  const seenRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Selecting a new unit resets the dedup set and the visible buffer.
+    seenRef.current = new Set();
+    setLines([]);
+    setRate(0);
+  }, [unit]);
 
   useEffect(() => {
     if (paused) return;
-    const url = `/api/logs/${encodeURIComponent(unit)}?tail=200`;
-    const es = new EventSource(url);
-    let counter = 0;
-    let interval = window.setInterval(() => {
-      setRate(counter);
-      counter = 0;
+    let cancelled = false;
+    let lastPollSize = 0;
+    let rateCounter = 0;
+    const rateTimer = window.setInterval(() => {
+      setRate(rateCounter);
+      rateCounter = 0;
     }, 1000);
 
-    es.addEventListener("line", (ev: MessageEvent) => {
-      counter++;
-      const data = JSON.parse(ev.data) as LogLine;
-      setLines((prev) => {
-        const next = [...prev, { ...data, isNew: true }];
-        return next.length > 8192 ? next.slice(next.length - 8192) : next;
-      });
-    });
+    const poll = async () => {
+      try {
+        const url = `/api/stargate/logs/${encodeURIComponent(unit)}?lines=200&since=2m`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as { lines?: LogLine[] };
+        if (cancelled || !j.lines) return;
+        const seen = seenRef.current;
+        const fresh: LogLine[] = [];
+        for (const line of j.lines) {
+          // Dedup by ts+msg — journalctl returns overlapping tails across polls
+          const key = `${line.ts}|${line.msg}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          fresh.push({ ...line, isNew: true });
+        }
+        if (fresh.length === 0) return;
+        rateCounter += fresh.length - lastPollSize > 0 ? fresh.length : 0;
+        lastPollSize = fresh.length;
+        setLines((prev) => {
+          const next = [...prev, ...fresh];
+          return next.length > 8192 ? next.slice(next.length - 8192) : next;
+        });
+      } catch {
+        /* swallow — next tick retries */
+      }
+    };
+    poll();
+    const pollTimer = window.setInterval(() => {
+      if (!document.hidden) poll();
+    }, 2000);
 
     return () => {
-      es.close();
-      window.clearInterval(interval);
+      cancelled = true;
+      window.clearInterval(pollTimer);
+      window.clearInterval(rateTimer);
     };
   }, [unit, paused]);
 

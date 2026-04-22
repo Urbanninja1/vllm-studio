@@ -27,9 +27,41 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Panel } from "./Panel";
 import { Odometer } from "./Odometer";
+
+/** Hook: fetch recipes from /api/stargate/recipes every 10s. */
+export function useRecipesLive(): { recipes: Recipe[]; loading: boolean } {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const r = await fetch("/api/stargate/recipes", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as { recipes: Recipe[] };
+        if (cancelled) return;
+        if (Array.isArray(j.recipes)) {
+          setRecipes(j.recipes);
+          setLoading(false);
+        }
+      } catch {
+        /* swallow */
+      }
+    };
+    pull();
+    const id = setInterval(() => {
+      if (!document.hidden) pull();
+    }, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+  return { recipes, loading };
+}
 
 interface Recipe {
   id: string;
@@ -58,7 +90,10 @@ interface Recipe {
   favorite: boolean;
 }
 
-export function ModelsBrowser({ recipes }: { recipes: Recipe[] }) {
+export function ModelsBrowser({ recipes: propRecipes }: { recipes?: Recipe[] } = {}) {
+  // Prefer explicit prop (for tests + storybook); otherwise pull live.
+  const live = useRecipesLive();
+  const recipes = propRecipes ?? live.recipes;
   const [query, setQuery] = useState("");
   const [backendFilter, setBackendFilter] = useState<Recipe["backend"] | "all">("all");
   const [stateFilters, setStateFilters] = useState<Set<string>>(new Set());
