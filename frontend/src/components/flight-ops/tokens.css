@@ -1,0 +1,158 @@
+/* =========================================================================
+   STARGATE vLLM STUDIO — FLIGHT OPS DESIGN TOKENS
+   Tailwind 4 @theme inline or pure CSS vars. Consume from globals.css.
+   Do NOT edit these values ad-hoc — every token is load-bearing.
+   ========================================================================= */
+
+@theme inline {
+  /* INK — graphite neutrals. No pure black, no pure white. */
+  --color-ink-0: #070809;
+  --color-ink-1: #0A0C0F;
+  --color-ink-2: #101318;
+  --color-ink-3: #171B22;
+  --color-ink-4: #1F242C;
+  --color-ink-5: #2A313B;
+
+  --color-fg-1: #E6ECF2;
+  --color-fg-2: #9AA4B2;
+  --color-fg-3: #5B6574;
+  --color-fg-4: #3A424D;
+
+  /* Accent — arctic cyan. Used sparingly. Never for chrome decoration. */
+  --color-accent: #7DD3D8;
+  --color-accent-dim: #4A8F94;
+
+  /* State — muted, not emoji-bright */
+  --color-ok: #8FBF9F;
+  --color-warn: #D4B26A;
+  --color-alert: #E26D5A;
+
+  /* Data palette (charts) */
+  --color-d1: #7DD3D8;
+  --color-d2: #8FBF9F;
+  --color-d3: #D4B26A;
+  --color-d4: #E26D5A;
+  --color-d5: #B792C9;
+
+  /* Fonts — IBM Plex Sans Condensed display, JetBrains Mono numerics */
+  --font-display: "IBM Plex Sans Condensed", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Motion — stepped durations, custom ease */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --ease-flight: cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+/* Global body setup — goes in app/globals.css */
+@layer base {
+  html {
+    background: var(--color-ink-1);
+    color: var(--color-fg-1);
+    font-family: var(--font-body);
+    font-feature-settings: "tnum" 1, "zero" 1;
+  }
+
+  /* Atmospheric wash — subtle, not a purple gradient */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 50% at 0% 0%, color-mix(in srgb, var(--color-accent) 4%, transparent), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, color-mix(in srgb, var(--color-alert) 3%, transparent), transparent 50%);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Recessed scrollbars */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--color-ink-1); }
+  *::-webkit-scrollbar-thumb { background: var(--color-ink-4); border: 2px solid var(--color-ink-1); }
+  *::-webkit-scrollbar-thumb:hover { background: var(--color-fg-4); }
+}
+
+/* =========================================================================
+   REUSABLE PRIMITIVES — used across Panel, Odometer, etc.
+   ========================================================================= */
+
+/* Corner bracket — L shape at panel corners.
+   Panel element wraps four absolute spans OR uses ::before + ::after + two spans. */
+.bracket {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--color-fg-3);
+  transition:
+    width var(--duration-base) var(--ease-flight),
+    height var(--duration-base) var(--ease-flight),
+    border-color var(--duration-base) var(--ease-flight);
+  pointer-events: none;
+}
+.bracket--tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+.bracket--tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+.bracket--bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+.bracket--br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+.panel:hover > .bracket,
+.panel[data-active="true"] > .bracket {
+  border-color: var(--color-accent);
+  width: 14px;
+  height: 14px;
+}
+
+/* Scanline sweep for live-data panels */
+@keyframes scanline-sweep {
+  0% { top: -1px; opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.6; }
+  100% { top: 100%; opacity: 0; }
+}
+.scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  box-shadow: 0 0 8px var(--color-accent);
+  animation: scanline-sweep 1.8s var(--ease-flight) infinite;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Odometer digit flip — subtle, used on numerics that live-tick */
+@keyframes odo-flip {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.odo-digit-enter { animation: odo-flip var(--duration-base) var(--ease-flight); }
+
+/* Pulse for live dots */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.dot-pulse { animation: dot-pulse 1.8s ease-in-out infinite; }
+
+/* Log-line flash when new */
+@keyframes log-flash {
+  from { background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+  to { background: transparent; }
+}
+.log-flash { animation: log-flash var(--duration-slow) var(--ease-flight); }

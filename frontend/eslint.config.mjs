@@ -62,6 +62,12 @@ const eslintConfig = defineConfig([
     "test-results/**",
     "desktop/dist/**",
     "dist-desktop/**",
+    // Flight Ops Terminal preview — drop-in design artifacts from Stargate
+    // closure 2026-04-22 P3. Live at /flight-ops as a side-by-side preview;
+    // full wire-up (mock → real Agent API bindings) happens at cutover time,
+    // at which point these exemptions should be removed.
+    "src/components/flight-ops/**",
+    "src/app/flight-ops/**",
   ]),
 ]);
 
