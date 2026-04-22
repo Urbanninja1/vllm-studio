@@ -37,9 +37,165 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Panel } from "./Panel";
 import { Odometer } from "./Odometer";
+
+/* =========================================================================
+   Live-data hook — fetches the per-recipe view from the Stargate model
+   registry and derives the deep edit-form shape. Defaults where the
+   registry doesn't have a direct field (sampling thinking params, etc.)
+   mirror `.claude/rules/models.md` community SOTA.
+   ========================================================================= */
+
+interface LiveRecipeBundle {
+  recipe: Recipe | null;
+  benchmarks: BenchmarkResult[];
+  vramCurrentMb: number;
+  vramTotalMb: number;
+  loading: boolean;
+}
+
+interface ApiRecipe {
+  id: string;
+  name: string;
+  subtitle: string;
+  backend: string;
+  gpu_label: string;
+  speed_tok_s: number;
+  kv_quant: string;
+  vram_mb: number;
+  total_vram_mb: number;
+  quant_name: string;
+  state: string;
+}
+
+function serverBinaryFor(r: ApiRecipe): StargateExtras["stargate_server_binary"] {
+  if (r.backend === "vllm") return "vllm";
+  if (r.backend === "sglang") return "sglang";
+  if (r.id.endsWith("-p6000")) return "llama_pascal";
+  if (r.gpu_label.startsWith("3090") && r.id.includes("tq")) return "tq_plus";
+  return "tq_plus";
+}
+
+function macroGroupFor(gpuLabel: string): StargateExtras["stargate_macro_group"] {
+  if (gpuLabel === "P6000 #0") return "gpu0-managed";
+  if (gpuLabel === "P6000 #1") return "gpu1-managed";
+  if (gpuLabel === "3090 #2") return "gpu2-managed";
+  if (gpuLabel === "3090 #3") return "gpu3-managed";
+  return "dual-gpu-exclusive";
+}
+
+function kvTypeFor(kv: string, which: "k" | "v"): StargateExtras["stargate_kv_type_k"] {
+  const parts = kv.split("/");
+  const token = parts[which === "k" ? 0 : parts.length === 2 ? 1 : 0] ?? kv;
+  if (token.includes("turbo")) return "turbo4";
+  if (token.includes("q8")) return "q8_0";
+  if (token.includes("q4")) return "q4_0";
+  return "f16";
+}
+
+function adaptApiToDeepRecipe(api: ApiRecipe): Recipe {
+  return {
+    id: api.id,
+    name: api.subtitle ?? api.name,
+    backend: api.backend,
+    model: api.id,
+    port: 8080,
+    extra_args: {
+      llama_swap_profile: api.id,
+      llama_swap_url: "http://localhost:8080",
+      llama_swap_filter_url: "http://localhost:8084",
+      stargate_gpu: api.gpu_label,
+      stargate_vram_mb: api.vram_mb,
+      stargate_server_binary: serverBinaryFor(api),
+      stargate_macro_group: macroGroupFor(api.gpu_label),
+      stargate_kv_type_k: kvTypeFor(api.kv_quant, "k"),
+      stargate_kv_type_v: kvTypeFor(api.kv_quant, "v"),
+      stargate_context_native: 262144,
+      stargate_sampling_general: { temp: 1.0, top_p: 0.95, top_k: 64, min_p: 0.03 },
+      stargate_sampling_thinking: { temp: 0.6, top_p: 0.95, top_k: 20 },
+    },
+  };
+}
+
+function useLiveRecipe(modelId?: string): LiveRecipeBundle {
+  const [bundle, setBundle] = useState<LiveRecipeBundle>({
+    recipe: null,
+    benchmarks: [],
+    vramCurrentMb: 0,
+    vramTotalMb: 24576,
+    loading: true,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        // 1) Pick the model: explicit prop → model-registry's first Mode C
+        //    persistent → fall through to the registry's first entry.
+        const recipesResp = await fetch(
+          modelId ? `/api/stargate/recipes?id=${encodeURIComponent(modelId)}` : "/api/stargate/recipes",
+          { cache: "no-store" },
+        );
+        if (!recipesResp.ok) return;
+        const rj = (await recipesResp.json()) as
+          | { recipe: ApiRecipe; benchmarks: BenchmarkResult[] }
+          | { recipes: ApiRecipe[] };
+
+        let apiRecipe: ApiRecipe | null = null;
+        let bench: BenchmarkResult[] = [];
+        if ("recipe" in rj) {
+          apiRecipe = rj.recipe;
+          bench = rj.benchmarks ?? [];
+        } else if ("recipes" in rj) {
+          apiRecipe =
+            rj.recipes.find((r) => r.state === "persist") ??
+            rj.recipes[0] ??
+            null;
+        }
+        if (!apiRecipe || cancelled) return;
+
+        // 2) Pull current VRAM from the dashboard aggregator so the VRAM
+        //    budget widget shows a real delta.
+        const dashResp = await fetch("/api/stargate/dashboard", { cache: "no-store" });
+        let vramCurrent = 0;
+        let vramTotal = apiRecipe.total_vram_mb || 24576;
+        if (dashResp.ok) {
+          const dj = (await dashResp.json()) as {
+            gpus: { label: string; vram_used_mb: number; vram_total_mb: number }[];
+          };
+          const match = dj.gpus.find((g) => g.label === apiRecipe!.gpu_label);
+          if (match) {
+            vramCurrent = match.vram_used_mb;
+            vramTotal = match.vram_total_mb;
+          }
+        }
+
+        if (cancelled) return;
+        setBundle({
+          recipe: adaptApiToDeepRecipe(apiRecipe),
+          benchmarks: bench,
+          vramCurrentMb: vramCurrent,
+          vramTotalMb: vramTotal,
+          loading: false,
+        });
+      } catch {
+        /* swallow */
+      }
+    };
+    pull();
+    const id = setInterval(() => {
+      if (!document.hidden) pull();
+    }, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [modelId]);
+
+  return bundle;
+}
 
 /* =========================================================================
    Recipe shape — exact match to the plan's JSON example at lines 194-214.
@@ -79,21 +235,45 @@ interface BenchmarkResult {
 /* ========================================================================= */
 
 export function RecipeForm({
-  recipe: initial,
-  benchmarks,
-  vramCurrentMb,
-  vramTotalMb,
+  recipe: propRecipe,
+  benchmarks: propBenchmarks,
+  vramCurrentMb: propVramCurrentMb,
+  vramTotalMb: propVramTotalMb,
+  modelId,
 }: {
-  recipe: Recipe;
-  benchmarks: BenchmarkResult[];
-  vramCurrentMb: number;
-  vramTotalMb: number;
-}) {
-  const [recipe, setRecipe] = useState(initial);
+  recipe?: Recipe;
+  benchmarks?: BenchmarkResult[];
+  vramCurrentMb?: number;
+  vramTotalMb?: number;
+  modelId?: string;
+} = {}) {
+  // Live-data path: no explicit recipe prop → pull from the Stargate
+  // recipes API. Explicit prop still wins (storybook/tests).
+  const live = useLiveRecipe(propRecipe ? undefined : modelId);
+  const resolved = propRecipe ?? live.recipe;
+  const benchmarks = propBenchmarks ?? live.benchmarks;
+  const vramCurrentMb = propVramCurrentMb ?? live.vramCurrentMb;
+  const vramTotalMb = propVramTotalMb ?? live.vramTotalMb;
+  const [recipe, setRecipe] = useState<Recipe | null>(resolved);
   const [dirty, setDirty] = useState(0);
 
+  // Keep local state in sync with live data until the user makes an edit.
+  useEffect(() => {
+    if (dirty === 0 && resolved) setRecipe(resolved);
+  }, [resolved, dirty]);
+
+  if (!recipe) {
+    return (
+      <section className="flex flex-col items-center justify-center py-24">
+        <p className="font-mono text-[12px] text-[var(--color-fg-3)]">
+          Loading recipe from /api/stargate/recipes…
+        </p>
+      </section>
+    );
+  }
+
   const patch = <K extends keyof StargateExtras>(k: K, v: StargateExtras[K]) => {
-    setRecipe((r) => ({
+    setRecipe((r) => (r === null ? r : {
       ...r,
       extra_args: { ...r.extra_args, [k]: v },
     }));
